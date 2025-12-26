@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -8,24 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-
-type GameRole = 'citizen' | 'commissar' | 'doctor' | 'suicide' | 'prostitute' | 'maniac' | 'homeless' | 'sergeant' | 'lawyer' | 'lucky' | 'kamikaze';
-
-type Player = {
-  id: string;
-  name: string;
-  role?: GameRole;
-  isAlive: boolean;
-  votes?: number;
-};
-
-type Room = {
-  id: string;
-  name: string;
-  players: number;
-  maxPlayers: number;
-  status: 'waiting' | 'playing';
-};
+import { useToast } from '@/hooks/use-toast';
+import * as api from '@/lib/api';
 
 const ROLES = [
   { id: 'citizen', name: 'Мирный житель', icon: '👤', color: 'bg-green-500' },
@@ -42,43 +26,175 @@ const ROLES = [
 ];
 
 export default function Index() {
-  const [currentTab, setCurrentTab] = useState('lobby');
-  const [gamePhase, setGamePhase] = useState<'night' | 'day' | 'voting'>('night');
-  const [timer, setTimer] = useState(60);
+  const [currentTab, setCurrentTab] = useState('profile');
+  const [gamePhase] = useState<'night' | 'day' | 'voting'>('night');
+  const [timer] = useState(60);
   const [roomName, setRoomName] = useState('');
+  const [username, setUsername] = useState('');
+  const [currentUser, setCurrentUser] = useState<api.User | null>(null);
+  const [rooms, setRooms] = useState<api.Room[]>([]);
+  const [leaderboard, setLeaderboard] = useState<api.LeaderboardEntry[]>([]);
+  const [achievements, setAchievements] = useState<api.Achievement[]>([]);
+  const [currentRoom, setCurrentRoom] = useState<api.Room | null>(null);
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
-  const mockRooms: Room[] = [
-    { id: '1', name: 'Байкеры СПБ', players: 8, maxPlayers: 12, status: 'waiting' },
-    { id: '2', name: 'Ночные волки', players: 12, maxPlayers: 12, status: 'playing' },
-    { id: '3', name: 'Легион', players: 5, maxPlayers: 10, status: 'waiting' },
-  ];
+  useEffect(() => {
+    const savedUserId = localStorage.getItem('userId');
+    if (savedUserId) {
+      loadUser(parseInt(savedUserId));
+    }
+  }, []);
 
-  const mockPlayers: Player[] = [
-    { id: '1', name: 'Волк', role: 'maniac', isAlive: true, votes: 0 },
-    { id: '2', name: 'Медведь', role: 'doctor', isAlive: true, votes: 0 },
-    { id: '3', name: 'Орёл', role: 'citizen', isAlive: false, votes: 0 },
-    { id: '4', name: 'Лиса', role: 'commissar', isAlive: true, votes: 0 },
-    { id: '5', name: 'Барс', role: 'citizen', isAlive: true, votes: 0 },
-    { id: '6', name: 'Кобра', role: 'prostitute', isAlive: true, votes: 0 },
-    { id: '7', name: 'Ворон', role: 'homeless', isAlive: true, votes: 0 },
-    { id: '8', name: 'Сокол', role: 'lucky', isAlive: true, votes: 0 },
-  ];
+  useEffect(() => {
+    if (currentTab === 'lobby') {
+      loadRooms();
+    } else if (currentTab === 'rating') {
+      loadLeaderboard();
+    } else if (currentTab === 'profile' && currentUser) {
+      loadAchievements(currentUser.id);
+    }
+  }, [currentTab, currentUser]);
 
-  const mockLeaderboard = [
-    { id: '1', name: 'Волк', wins: 42, games: 78, winRate: 54 },
-    { id: '2', name: 'Медведь', wins: 38, games: 65, winRate: 58 },
-    { id: '3', name: 'Орёл', wins: 35, games: 70, winRate: 50 },
-    { id: '4', name: 'Лиса', wins: 31, games: 60, winRate: 52 },
-    { id: '5', name: 'Барс', wins: 28, games: 55, winRate: 51 },
-  ];
+  const loadUser = async (userId: number) => {
+    try {
+      const user = await api.getUser(userId);
+      setCurrentUser(user);
+      setCurrentTab('lobby');
+    } catch (error) {
+      console.error('Error loading user:', error);
+      localStorage.removeItem('userId');
+    }
+  };
 
-  const mockAchievements = [
-    { id: '1', name: 'Первая кровь', description: 'Убей первого игрока', icon: '🩸', unlocked: true },
-    { id: '2', name: 'Выживальщик', description: 'Выживи 10 раз подряд', icon: '🛡️', unlocked: true },
-    { id: '3', name: 'Маэстро', description: 'Выиграй 50 игр', icon: '🏆', unlocked: false },
-    { id: '4', name: 'Детектив', description: 'Раскрой мафию 20 раз', icon: '🔍', unlocked: true },
-    { id: '5', name: 'Легенда', description: 'Выиграй 100 игр', icon: '👑', unlocked: false },
-  ];
+  const handleRegister = async () => {
+    if (!username.trim()) {
+      toast({ title: 'Ошибка', description: 'Введи своё имя', variant: 'destructive' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const user = await api.registerUser(username);
+      setCurrentUser(user);
+      localStorage.setItem('userId', user.id.toString());
+      setCurrentTab('lobby');
+      toast({ title: 'Успех!', description: `Добро пожаловать, ${user.username}!` });
+    } catch (error) {
+      toast({ title: 'Ошибка', description: 'Не удалось создать профиль', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRooms = async () => {
+    try {
+      const data = await api.listRooms();
+      setRooms(data);
+    } catch (error) {
+      console.error('Error loading rooms:', error);
+    }
+  };
+
+  const handleCreateRoom = async () => {
+    if (!roomName.trim()) {
+      toast({ title: 'Ошибка', description: 'Введи название комнаты', variant: 'destructive' });
+      return;
+    }
+
+    if (!currentUser) return;
+
+    setLoading(true);
+    try {
+      const room = await api.createRoom(roomName, currentUser.id);
+      toast({ title: 'Комната создана!', description: `${room.name}` });
+      setRoomName('');
+      loadRooms();
+    } catch (error) {
+      toast({ title: 'Ошибка', description: 'Не удалось создать комнату', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleJoinRoom = async (roomId: number) => {
+    if (!currentUser) return;
+
+    setLoading(true);
+    try {
+      await api.joinRoom(roomId, currentUser.id);
+      const room = await api.getRoomInfo(roomId);
+      setCurrentRoom(room);
+      setCurrentTab('game');
+      toast({ title: 'Успех!', description: 'Вы присоединились к комнате' });
+    } catch (error: any) {
+      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadLeaderboard = async () => {
+    try {
+      const data = await api.getLeaderboard();
+      setLeaderboard(data);
+    } catch (error) {
+      console.error('Error loading leaderboard:', error);
+    }
+  };
+
+  const loadAchievements = async (userId: number) => {
+    try {
+      const data = await api.getUserAchievements(userId);
+      setAchievements(data);
+    } catch (error) {
+      console.error('Error loading achievements:', error);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('userId');
+    setCurrentUser(null);
+    setCurrentTab('profile');
+    toast({ title: 'Выход', description: 'Ты вышел из аккаунта' });
+  };
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#1A1A2E] text-white flex items-center justify-center p-4">
+        <div className="relative overflow-hidden w-full max-w-md">
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute top-10 left-10 text-[200px] rotate-12 text-primary">🏍️</div>
+            <div className="absolute bottom-10 right-10 text-[200px] -rotate-12 text-secondary">💀</div>
+          </div>
+
+          <Card className="relative z-10 p-8 bg-card/80 backdrop-blur border-2 border-primary/30 text-center">
+            <h1 className="text-5xl font-black graffiti-text text-transparent bg-clip-text bg-gradient-to-r from-primary via-secondary to-accent mb-2">
+              МАФИЯ
+            </h1>
+            <p className="text-sm text-muted-foreground mb-8">Байкерское издание</p>
+
+            <div className="space-y-4">
+              <Input
+                placeholder="Введи своё имя"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
+                className="bg-background/50 border-muted text-center text-lg"
+              />
+              <Button
+                onClick={handleRegister}
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 font-bold text-lg py-6"
+              >
+                {loading ? 'Загрузка...' : 'Начать играть 🏍️'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white">
@@ -127,10 +243,15 @@ export default function Index() {
                     placeholder="Название комнаты"
                     value={roomName}
                     onChange={(e) => setRoomName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleCreateRoom()}
                     className="bg-background/50 border-muted"
                   />
-                  <Button className="w-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 font-bold">
-                    Создать
+                  <Button
+                    onClick={handleCreateRoom}
+                    disabled={loading}
+                    className="w-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 font-bold"
+                  >
+                    {loading ? 'Создание...' : 'Создать'}
                   </Button>
                 </div>
               </Card>
@@ -140,118 +261,112 @@ export default function Index() {
                   <Icon name="Users" size={20} />
                   Доступные комнаты
                 </h3>
-                <ScrollArea className="h-[400px]">
-                  <div className="space-y-2">
-                    {mockRooms.map((room) => (
-                      <Card
-                        key={room.id}
-                        className="p-4 bg-card/80 backdrop-blur border border-muted hover:border-primary/50 transition-all cursor-pointer"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <h4 className="font-bold text-lg">{room.name}</h4>
-                            <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Icon name="Users" size={16} />
-                                {room.players}/{room.maxPlayers}
-                              </span>
-                              <Badge
-                                variant={room.status === 'playing' ? 'destructive' : 'default'}
-                                className="text-xs"
-                              >
-                                {room.status === 'playing' ? 'Играют' : 'Ожидание'}
-                              </Badge>
+                {rooms.length === 0 ? (
+                  <Card className="p-8 bg-card/50 backdrop-blur text-center">
+                    <p className="text-muted-foreground">Пока нет комнат. Создай первую!</p>
+                  </Card>
+                ) : (
+                  <ScrollArea className="h-[400px]">
+                    <div className="space-y-2">
+                      {rooms.map((room) => (
+                        <Card
+                          key={room.id}
+                          className="p-4 bg-card/80 backdrop-blur border border-muted hover:border-primary/50 transition-all"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <h4 className="font-bold text-lg">{room.name}</h4>
+                              <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Icon name="Users" size={16} />
+                                  {room.player_count || 0}/{room.max_players}
+                                </span>
+                                <Badge
+                                  variant={room.status === 'playing' ? 'destructive' : 'default'}
+                                  className="text-xs"
+                                >
+                                  {room.status === 'playing' ? 'Играют' : 'Ожидание'}
+                                </Badge>
+                              </div>
                             </div>
+                            <Button
+                              size="sm"
+                              disabled={room.status === 'playing' || loading}
+                              onClick={() => handleJoinRoom(room.id)}
+                              className="bg-primary hover:bg-primary/80"
+                            >
+                              Войти
+                            </Button>
                           </div>
-                          <Button
-                            size="sm"
-                            disabled={room.status === 'playing'}
-                            className="bg-primary hover:bg-primary/80"
-                          >
-                            Войти
-                          </Button>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </ScrollArea>
+                        </Card>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                )}
               </div>
             </TabsContent>
 
             <TabsContent value="game" className="mt-6 space-y-4">
-              <Card className="p-4 bg-gradient-to-br from-card/90 to-primary/10 backdrop-blur border-2 border-primary/50 spray-shadow">
-                <div className="text-center space-y-2">
-                  <h2 className="text-3xl font-black graffiti-text">
-                    {gamePhase === 'night' ? '🌙 Ночь' : gamePhase === 'day' ? '☀️ День' : '🗳️ Голосование'}
-                  </h2>
-                  <div className="flex items-center justify-center gap-2 text-4xl font-black">
-                    <Icon name="Clock" size={32} className="text-secondary" />
-                    <span>{timer}s</span>
-                  </div>
-                  <Progress value={(timer / 60) * 100} className="h-2" />
-                  {gamePhase === 'voting' && (
-                    <p className="text-sm text-muted-foreground mt-2">Голосуй за подозреваемого</p>
-                  )}
-                </div>
-              </Card>
-
-              <div>
-                <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-                  <Icon name="Users" size={20} />
-                  Игроки ({mockPlayers.filter((p) => p.isAlive).length}/{mockPlayers.length})
-                </h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {mockPlayers.map((player) => (
-                    <Card
-                      key={player.id}
-                      className={`p-3 backdrop-blur transition-all cursor-pointer ${
-                        player.isAlive
-                          ? 'bg-card/80 border border-muted hover:border-primary/50 hover:scale-105'
-                          : 'bg-card/30 border border-destructive/30 opacity-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-10 w-10 border-2 border-primary">
-                          <AvatarFallback className="bg-primary/20 text-primary font-bold">
-                            {player.name[0]}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-sm truncate">{player.name}</p>
-                          {!player.isAlive && (
-                            <p className="text-xs text-destructive flex items-center gap-1">
-                              <Icon name="Skull" size={12} />
-                              Выбыл
-                            </p>
-                          )}
-                        </div>
+              {currentRoom ? (
+                <>
+                  <Card className="p-4 bg-gradient-to-br from-card/90 to-primary/10 backdrop-blur border-2 border-primary/50 spray-shadow">
+                    <div className="text-center space-y-2">
+                      <h2 className="text-3xl font-black graffiti-text">
+                        {gamePhase === 'night' ? '🌙 Ночь' : gamePhase === 'day' ? '☀️ День' : '🗳️ Голосование'}
+                      </h2>
+                      <div className="flex items-center justify-center gap-2 text-4xl font-black">
+                        <Icon name="Clock" size={32} className="text-secondary" />
+                        <span>{timer}s</span>
                       </div>
-                      {gamePhase === 'voting' && player.isAlive && (
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground">Голосов: {player.votes}</span>
-                          <Button size="sm" variant="destructive" className="h-6 text-xs">
-                            Голосовать
-                          </Button>
-                        </div>
-                      )}
-                    </Card>
-                  ))}
-                </div>
-              </div>
+                      <Progress value={(timer / 60) * 100} className="h-2" />
+                    </div>
+                  </Card>
 
-              <Card className="p-4 bg-card/80 backdrop-blur border border-primary/30">
-                <h3 className="font-bold mb-2 flex items-center gap-2">
-                  <Icon name="Shield" size={18} />
-                  Твоя роль
-                </h3>
-                <div className="flex items-center gap-3 p-3 bg-primary/10 rounded-lg border border-primary/30">
-                  <span className="text-4xl">🔪</span>
                   <div>
-                    <p className="font-bold text-lg">Маньяк</p>
-                    <p className="text-xs text-muted-foreground">Убивай каждую ночь</p>
+                    <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                      <Icon name="Users" size={20} />
+                      Игроки ({currentRoom.players?.filter((p) => p.is_alive).length || 0}/{currentRoom.players?.length || 0})
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {currentRoom.players?.map((player) => (
+                        <Card
+                          key={player.id}
+                          className={`p-3 backdrop-blur transition-all ${
+                            player.is_alive
+                              ? 'bg-card/80 border border-muted hover:border-primary/50'
+                              : 'bg-card/30 border border-destructive/30 opacity-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-10 w-10 border-2 border-primary">
+                              <AvatarFallback className="bg-primary/20 text-primary font-bold">
+                                {player.username[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-sm truncate">{player.username}</p>
+                              {!player.is_alive && (
+                                <p className="text-xs text-destructive flex items-center gap-1">
+                                  <Icon name="Skull" size={12} />
+                                  Выбыл
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </Card>
+                </>
+              ) : (
+                <Card className="p-8 bg-card/50 backdrop-blur text-center">
+                  <Icon name="Swords" size={48} className="mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-muted-foreground">Войди в комнату, чтобы начать игру</p>
+                  <Button onClick={() => setCurrentTab('lobby')} className="mt-4 bg-primary">
+                    Перейти в лобби
+                  </Button>
+                </Card>
+              )}
             </TabsContent>
 
             <TabsContent value="rating" className="mt-6 space-y-4">
@@ -262,70 +377,78 @@ export default function Index() {
                 </div>
               </Card>
 
-              <ScrollArea className="h-[500px]">
-                <div className="space-y-2">
-                  {mockLeaderboard.map((player, index) => (
-                    <Card
-                      key={player.id}
-                      className="p-4 bg-card/80 backdrop-blur border border-muted hover:border-primary/50 transition-all"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div
-                          className={`text-3xl font-black ${
-                            index === 0
-                              ? 'text-yellow-400'
-                              : index === 1
-                              ? 'text-gray-300'
-                              : index === 2
-                              ? 'text-orange-400'
-                              : 'text-muted-foreground'
-                          }`}
-                        >
-                          #{index + 1}
-                        </div>
-                        <Avatar className="h-12 w-12 border-2 border-primary">
-                          <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
-                            {player.name[0]}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <p className="font-bold text-lg">{player.name}</p>
-                          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                            <span>Побед: {player.wins}</span>
-                            <span>Игр: {player.games}</span>
+              {leaderboard.length === 0 ? (
+                <Card className="p-8 bg-card/50 backdrop-blur text-center">
+                  <p className="text-muted-foreground">Пока нет данных. Сыграй первым!</p>
+                </Card>
+              ) : (
+                <ScrollArea className="h-[500px]">
+                  <div className="space-y-2">
+                    {leaderboard.map((player, index) => (
+                      <Card
+                        key={player.id}
+                        className="p-4 bg-card/80 backdrop-blur border border-muted hover:border-primary/50 transition-all"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div
+                            className={`text-3xl font-black ${
+                              index === 0
+                                ? 'text-yellow-400'
+                                : index === 1
+                                ? 'text-gray-300'
+                                : index === 2
+                                ? 'text-orange-400'
+                                : 'text-muted-foreground'
+                            }`}
+                          >
+                            #{index + 1}
+                          </div>
+                          <Avatar className="h-12 w-12 border-2 border-primary">
+                            <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
+                              {player.username[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <p className="font-bold text-lg">{player.username}</p>
+                            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                              <span>Побед: {player.total_wins}</span>
+                              <span>Игр: {player.total_games}</span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-primary">{player.win_rate}%</p>
+                            <p className="text-xs text-muted-foreground">Винрейт</p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-primary">{player.winRate}%</p>
-                          <p className="text-xs text-muted-foreground">Винрейт</p>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </ScrollArea>
+                      </Card>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
             </TabsContent>
 
             <TabsContent value="profile" className="mt-6 space-y-4">
               <Card className="p-6 bg-gradient-to-br from-card/90 to-accent/10 backdrop-blur border-2 border-accent/50 text-center">
                 <Avatar className="h-24 w-24 mx-auto border-4 border-primary mb-4">
                   <AvatarFallback className="bg-primary/20 text-primary font-black text-4xl">
-                    В
+                    {currentUser.username[0]}
                   </AvatarFallback>
                 </Avatar>
-                <h2 className="text-2xl font-black graffiti-text">Волк</h2>
-                <p className="text-sm text-muted-foreground">ID: #12345</p>
+                <h2 className="text-2xl font-black graffiti-text">{currentUser.username}</h2>
+                <p className="text-sm text-muted-foreground">ID: #{currentUser.id}</p>
                 <div className="grid grid-cols-3 gap-4 mt-6">
                   <div>
-                    <p className="text-3xl font-bold text-primary">42</p>
+                    <p className="text-3xl font-bold text-primary">{currentUser.total_wins}</p>
                     <p className="text-xs text-muted-foreground">Побед</p>
                   </div>
                   <div>
-                    <p className="text-3xl font-bold text-secondary">78</p>
+                    <p className="text-3xl font-bold text-secondary">{currentUser.total_games}</p>
                     <p className="text-xs text-muted-foreground">Игр</p>
                   </div>
                   <div>
-                    <p className="text-3xl font-bold text-accent">54%</p>
+                    <p className="text-3xl font-bold text-accent">
+                      {currentUser.total_games > 0 ? Math.round((currentUser.total_wins / currentUser.total_games) * 100) : 0}%
+                    </p>
                     <p className="text-xs text-muted-foreground">Винрейт</p>
                   </div>
                 </div>
@@ -337,7 +460,7 @@ export default function Index() {
                   Достижения
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {mockAchievements.map((achievement) => (
+                  {achievements.map((achievement) => (
                     <Card
                       key={achievement.id}
                       className={`p-4 backdrop-blur transition-all ${
@@ -379,6 +502,7 @@ export default function Index() {
               </Card>
 
               <Button
+                onClick={handleLogout}
                 variant="outline"
                 className="w-full border-destructive text-destructive hover:bg-destructive/10"
               >
