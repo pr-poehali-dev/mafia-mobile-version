@@ -137,3 +137,10 @@ export async function loginWithTelegram(authData: TelegramAuthData): Promise<Use
 
   return response.json();
 }
+
+export async function addBot(room_id: number): Promise<{ success: boolean }> {
+  return apiRequest('room/add-bot', {
+    method: 'POST',
+    body: JSON.stringify({ room_id }),
+  });
+}

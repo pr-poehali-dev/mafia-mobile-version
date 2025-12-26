@@ -2,6 +2,7 @@ import json
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from utils import assign_roles
 
 def get_db():
     """Подключение к базе данных"""
@@ -43,6 +44,10 @@ def handler(event: dict, context) -> dict:
             return get_user_achievements(event)
         elif path == 'game/vote' and method == 'POST':
             return vote_player(event)
+        elif path == 'room/add-bot' and method == 'POST':
+            return add_bot_to_room(event)
+        elif path == 'game/start' and method == 'POST':
+            return start_game(event)
         else:
             return {
                 'statusCode': 404,
@@ -376,4 +381,162 @@ def vote_player(event: dict) -> dict:
         'statusCode': 200,
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
         'body': json.dumps({'success': True, 'action_id': action['id']})
+    }
+
+def add_bot_to_room(event: dict) -> dict:
+    """Добавление бота в комнату (только для создателя)"""
+    body = json.loads(event.get('body', '{}'))
+    room_id = body.get('room_id')
+    
+    if not room_id:
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': 'room_id required'})
+        }
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute("SELECT status, max_players FROM rooms WHERE id = %s", (room_id,))
+    room = cur.fetchone()
+    
+    if not room:
+        cur.close()
+        conn.close()
+        return {
+            'statusCode': 404,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': 'Room not found'})
+        }
+    
+    if room['status'] == 'playing':
+        cur.close()
+        conn.close()
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': 'Cannot add bots during game'})
+        }
+    
+    cur.execute("SELECT COUNT(*) as count FROM room_players WHERE room_id = %s", (room_id,))
+    player_count = cur.fetchone()['count']
+    
+    if player_count >= 20:
+        cur.close()
+        conn.close()
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': 'Maximum 20 players reached'})
+        }
+    
+    cur.execute("SELECT COUNT(*) as count FROM room_players WHERE room_id = %s AND is_bot = true", (room_id,))
+    bot_count = cur.fetchone()['count']
+    bot_number = bot_count + 1
+    
+    bot_names = ['Джонни', 'Винни', 'Тони', 'Рокки', 'Макс', 'Дюк', 'Спайк', 'Блейд', 'Рейдер', 'Вайпер', 
+                 'Харли', 'Чоппер', 'Револьвер', 'Дизель', 'Циклон', 'Гром', 'Стиль', 'Драйв', 'Буст', 'Нитро']
+    bot_username = bot_names[bot_number - 1] if bot_number <= len(bot_names) else f'Бот-{bot_number}'
+    
+    cur.execute(
+        "INSERT INTO users (username, telegram_id) VALUES (%s, %s) RETURNING id",
+        (bot_username, None)
+    )
+    bot_user = cur.fetchone()
+    
+    cur.execute(
+        "INSERT INTO room_players (room_id, user_id, is_bot) VALUES (%s, %s, true)",
+        (room_id, bot_user['id'])
+    )
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return {
+        'statusCode': 200,
+        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+        'body': json.dumps({'success': True, 'bot_username': bot_username})
+    }
+
+def start_game(event: dict) -> dict:
+    """Начало игры с распределением ролей"""
+    body = json.loads(event.get('body', '{}'))
+    room_id = body.get('room_id')
+    
+    if not room_id:
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': 'room_id required'})
+        }
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute("SELECT id, status FROM rooms WHERE id = %s", (room_id,))
+    room = cur.fetchone()
+    
+    if not room:
+        cur.close()
+        conn.close()
+        return {
+            'statusCode': 404,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': 'Room not found'})
+        }
+    
+    if room['status'] != 'waiting':
+        cur.close()
+        conn.close()
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': 'Game already started or finished'})
+        }
+    
+    cur.execute("SELECT id FROM room_players WHERE room_id = %s ORDER BY joined_at", (room_id,))
+    players = cur.fetchall()
+    player_count = len(players)
+    
+    if player_count < 4:
+        cur.close()
+        conn.close()
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': 'Minimum 4 players required'})
+        }
+    
+    try:
+        roles = assign_roles(player_count)
+    except ValueError as e:
+        cur.close()
+        conn.close()
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': str(e)})
+        }
+    
+    for i, player in enumerate(players):
+        cur.execute(
+            "UPDATE room_players SET role = %s WHERE id = %s",
+            (roles[i], player['id'])
+        )
+    
+    cur.execute(
+        "UPDATE rooms SET status = 'playing', current_phase = 'night' WHERE id = %s",
+        (room_id,)
+    )
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return {
+        'statusCode': 200,
+        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+        'body': json.dumps({'success': True, 'message': f'Game started with {player_count} players'})
     }
