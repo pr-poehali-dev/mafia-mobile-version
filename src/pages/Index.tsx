@@ -9,20 +9,87 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
+import TelegramLogin from '@/components/TelegramLogin';
 import * as api from '@/lib/api';
 
 const ROLES = [
-  { id: 'citizen', name: 'Мирный житель', icon: '👤', color: 'bg-green-500' },
-  { id: 'commissar', name: 'Комиссар Каттани', icon: '👮', color: 'bg-blue-500' },
-  { id: 'doctor', name: 'Доктор', icon: '💉', color: 'bg-green-400' },
-  { id: 'suicide', name: 'Самоубийца', icon: '💣', color: 'bg-gray-500' },
-  { id: 'prostitute', name: 'Проститутка', icon: '💋', color: 'bg-pink-500' },
-  { id: 'maniac', name: 'Маньяк', icon: '🔪', color: 'bg-red-600' },
-  { id: 'homeless', name: 'Бомж', icon: '🎒', color: 'bg-yellow-600' },
-  { id: 'sergeant', name: 'Сержант', icon: '⚔️', color: 'bg-blue-600' },
-  { id: 'lawyer', name: 'Адвокат', icon: '⚖️', color: 'bg-purple-500' },
-  { id: 'lucky', name: 'Счастливчик', icon: '🍀', color: 'bg-green-600' },
-  { id: 'kamikaze', name: 'Камикадзе', icon: '💥', color: 'bg-orange-600' },
+  { 
+    id: 'citizen', 
+    name: 'Мирный житель', 
+    icon: '👤', 
+    color: 'bg-green-500',
+    description: 'Обычный житель города. Днём голосует за изгнание подозрительных. Побеждает, когда все мафиози и маньяки мертвы.'
+  },
+  { 
+    id: 'commissar', 
+    name: 'Комиссар Каттани', 
+    icon: '👮', 
+    color: 'bg-blue-500',
+    description: 'Каждую ночь проверяет одного игрока и узнаёт, мафия он или нет. Помогает мирным найти преступников.'
+  },
+  { 
+    id: 'doctor', 
+    name: 'Доктор', 
+    icon: '💉', 
+    color: 'bg-green-400',
+    description: 'Каждую ночь лечит одного игрока. Если мафия выбрала его, игрок остаётся жив. Может лечить себя раз в игру.'
+  },
+  { 
+    id: 'suicide', 
+    name: 'Самоубийца', 
+    icon: '💣', 
+    color: 'bg-gray-500',
+    description: 'Если его убивают ночью или линчуют днём, он забирает с собой одного случайного игрока. Опасен для всех.'
+  },
+  { 
+    id: 'prostitute', 
+    name: 'Проститутка', 
+    icon: '💋', 
+    color: 'bg-pink-500',
+    description: 'Каждую ночь идёт к одному игроку. Если к нему пришла мафия — оба остаются живы. Блокирует способности цели.'
+  },
+  { 
+    id: 'maniac', 
+    name: 'Маньяк', 
+    icon: '🔪', 
+    color: 'bg-red-600',
+    description: 'Каждую ночь убивает любого игрока. Играет сам за себя. Побеждает, когда остаётся один или с мирным.'
+  },
+  { 
+    id: 'homeless', 
+    name: 'Бомж', 
+    icon: '🎒', 
+    color: 'bg-yellow-600',
+    description: 'Каждую ночь ночует у случайного игрока. Если мафия придёт убить его — убьют хозяина дома. Бомж выживет.'
+  },
+  { 
+    id: 'sergeant', 
+    name: 'Сержант', 
+    icon: '⚔️', 
+    color: 'bg-blue-600',
+    description: 'Один раз за игру может убить любого игрока ночью. Если убьёт мирного — теряет способность навсегда.'
+  },
+  { 
+    id: 'lawyer', 
+    name: 'Адвокат', 
+    icon: '⚖️', 
+    color: 'bg-purple-500',
+    description: 'Один раз за игру может спасти игрока от дневного голосования. Отменяет результаты голосования.'
+  },
+  { 
+    id: 'lucky', 
+    name: 'Счастливчик', 
+    icon: '🍀', 
+    color: 'bg-green-600',
+    description: 'Первая атака мафии или маньяка на него не срабатывает. Остаётся жив. Вторая атака убьёт его.'
+  },
+  { 
+    id: 'kamikaze', 
+    name: 'Камикадзе', 
+    icon: '💥', 
+    color: 'bg-orange-600',
+    description: 'Днём может взорвать себя вместе с одним выбранным игроком. Оба умирают. Использует раз в игру.'
+  },
 ];
 
 export default function Index() {
@@ -82,6 +149,21 @@ export default function Index() {
       toast({ title: 'Успех!', description: `Добро пожаловать, ${user.username}!` });
     } catch (error) {
       toast({ title: 'Ошибка', description: 'Не удалось создать профиль', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTelegramAuth = async (telegramUser: api.TelegramAuthData) => {
+    setLoading(true);
+    try {
+      const user = await api.loginWithTelegram(telegramUser);
+      setCurrentUser(user);
+      localStorage.setItem('userId', user.id.toString());
+      setCurrentTab('lobby');
+      toast({ title: 'Успех!', description: `Добро пожаловать, ${user.username}!` });
+    } catch (error: any) {
+      toast({ title: 'Ошибка', description: error.message || 'Не удалось войти через Telegram', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -174,21 +256,38 @@ export default function Index() {
             </h1>
             <p className="text-sm text-muted-foreground mb-8">Байкерское издание</p>
 
-            <div className="space-y-4">
-              <Input
-                placeholder="Введи своё имя"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
-                className="bg-background/50 border-muted text-center text-lg"
-              />
-              <Button
-                onClick={handleRegister}
-                disabled={loading}
-                className="w-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 font-bold text-lg py-6"
-              >
-                {loading ? 'Загрузка...' : 'Начать играть 🏍️'}
-              </Button>
+            <div className="space-y-6">
+              <div className="p-4 bg-primary/10 rounded-lg border border-primary/30">
+                <p className="text-sm text-muted-foreground mb-3">Войти через Telegram</p>
+                <TelegramLogin
+                  botName="YOUR_BOT_USERNAME"
+                  onAuth={handleTelegramAuth}
+                  buttonSize="large"
+                />
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-muted-foreground">или</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              <div className="space-y-3">
+                <Input
+                  placeholder="Введи своё имя"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
+                  className="bg-background/50 border-muted text-center text-lg"
+                />
+                <Button
+                  onClick={handleRegister}
+                  disabled={loading}
+                  className="w-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 font-bold text-lg py-6"
+                >
+                  {loading ? 'Загрузка...' : 'Начать играть 🏍️'}
+                </Button>
+              </div>
             </div>
           </Card>
         </div>
@@ -213,21 +312,25 @@ export default function Index() {
           </header>
 
           <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-4 bg-card/50 backdrop-blur">
+            <TabsList className="grid w-full grid-cols-5 bg-card/50 backdrop-blur">
               <TabsTrigger value="lobby" className="flex flex-col gap-1 py-3">
-                <Icon name="Home" size={20} />
+                <Icon name="Home" size={18} />
                 <span className="text-xs">Лобби</span>
               </TabsTrigger>
+              <TabsTrigger value="rules" className="flex flex-col gap-1 py-3">
+                <Icon name="BookOpen" size={18} />
+                <span className="text-xs">Правила</span>
+              </TabsTrigger>
               <TabsTrigger value="game" className="flex flex-col gap-1 py-3">
-                <Icon name="Swords" size={20} />
+                <Icon name="Swords" size={18} />
                 <span className="text-xs">Игра</span>
               </TabsTrigger>
               <TabsTrigger value="rating" className="flex flex-col gap-1 py-3">
-                <Icon name="Trophy" size={20} />
+                <Icon name="Trophy" size={18} />
                 <span className="text-xs">Рейтинг</span>
               </TabsTrigger>
               <TabsTrigger value="profile" className="flex flex-col gap-1 py-3">
-                <Icon name="User" size={20} />
+                <Icon name="User" size={18} />
                 <span className="text-xs">Профиль</span>
               </TabsTrigger>
             </TabsList>
@@ -303,6 +406,68 @@ export default function Index() {
                     </div>
                   </ScrollArea>
                 )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="rules" className="mt-6 space-y-4">
+              <Card className="p-4 bg-gradient-to-br from-primary/20 to-secondary/10 backdrop-blur border-2 border-primary/50">
+                <div className="text-center">
+                  <h2 className="text-2xl font-black graffiti-text mb-2">📖 Правила игры</h2>
+                  <p className="text-sm text-muted-foreground">Роли и механики</p>
+                </div>
+              </Card>
+
+              <Card className="p-4 bg-card/80 backdrop-blur border border-primary/30">
+                <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
+                  <Icon name="Info" size={20} className="text-accent" />
+                  Как играть
+                </h3>
+                <div className="space-y-3 text-sm">
+                  <p className="text-muted-foreground leading-relaxed">
+                    <span className="text-primary font-bold">🌙 Ночь:</span> Мафия и активные роли выбирают действия. Мирные жители спят.
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    <span className="text-secondary font-bold">☀️ День:</span> Обсуждение и поиск мафии. Делитесь подозрениями и уликами.
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    <span className="text-accent font-bold">🗳️ Голосование:</span> Все голосуют за одного подозреваемого. Игрок с большинством голосов выбывает.
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    <span className="text-green-500 font-bold">🏆 Победа мирных:</span> Когда все мафиози и маньяки мертвы.
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    <span className="text-red-500 font-bold">💀 Победа мафии:</span> Когда мафии столько же или больше, чем мирных.
+                  </p>
+                </div>
+              </Card>
+
+              <div>
+                <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                  <Icon name="Users" size={20} />
+                  Роли игры
+                </h3>
+                <ScrollArea className="h-[500px]">
+                  <div className="space-y-3">
+                    {ROLES.map((role) => (
+                      <Card
+                        key={role.id}
+                        className="p-4 bg-card/80 backdrop-blur border border-muted hover:border-primary/50 transition-all"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`w-12 h-12 ${role.color} rounded-full flex items-center justify-center text-2xl flex-shrink-0`}>
+                            {role.icon}
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-bold text-lg mb-1">{role.name}</h4>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                              {role.description}
+                            </p>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </ScrollArea>
               </div>
             </TabsContent>
 
@@ -478,28 +643,6 @@ export default function Index() {
                   ))}
                 </div>
               </div>
-
-              <Card className="p-4 bg-card/80 backdrop-blur border border-muted">
-                <h3 className="font-bold mb-3 flex items-center gap-2">
-                  <Icon name="BookOpen" size={18} />
-                  Роли игры
-                </h3>
-                <ScrollArea className="h-[300px]">
-                  <div className="space-y-2">
-                    {ROLES.map((role) => (
-                      <div
-                        key={role.id}
-                        className="flex items-center gap-3 p-3 bg-muted/20 rounded-lg hover:bg-muted/30 transition-all"
-                      >
-                        <div className={`w-10 h-10 ${role.color} rounded-full flex items-center justify-center text-2xl`}>
-                          {role.icon}
-                        </div>
-                        <p className="font-bold">{role.name}</p>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </Card>
 
               <Button
                 onClick={handleLogout}

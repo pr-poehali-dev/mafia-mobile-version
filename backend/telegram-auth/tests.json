@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "name": "Verify Telegram authentication",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "id": 123456789,
+        "first_name": "Test",
+        "username": "testuser",
+        "photo_url": "https://example.com/photo.jpg",
+        "auth_date": 1234567890,
+        "hash": "test_hash_placeholder"
+      },
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

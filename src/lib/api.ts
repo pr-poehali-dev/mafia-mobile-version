@@ -1,4 +1,5 @@
 const API_URL = 'https://functions.poehali.dev/2908ea2b-6f58-47b4-8a4d-f1154dce3ac0';
+const TELEGRAM_AUTH_URL = 'https://functions.poehali.dev/26aef7a0-d2a3-482f-b5a6-5347f19823c9';
 
 export interface User {
   id: number;
@@ -7,6 +8,16 @@ export interface User {
   total_games: number;
   total_wins: number;
   created_at?: string;
+}
+
+export interface TelegramAuthData {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number;
+  hash: string;
 }
 
 export interface Room {
@@ -108,4 +119,21 @@ export async function votePlayer(room_id: number, actor_id: number, target_id: n
     method: 'POST',
     body: JSON.stringify({ room_id, actor_id, target_id }),
   });
+}
+
+export async function loginWithTelegram(authData: TelegramAuthData): Promise<User> {
+  const response = await fetch(TELEGRAM_AUTH_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(authData),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Auth error: ${response.status}`);
+  }
+
+  return response.json();
 }
